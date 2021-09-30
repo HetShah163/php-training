@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\AvalaraTransactionLog;
 use App\Models\ExciseByProduct;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -168,12 +169,24 @@ class RefundsCreateJob implements ShouldQueue
                             $newService->setCredentials($apiUsername, $apiUserPassword, $companyId);
                             $response = $newService->calculateExcice($requestDataAdjust);
 
-                            $newService->dataStore($productIds, $shop, $requestDataAdjust, $transactionLines, $response);
+                            $newService->productCreate($productIds, $shop);
+
+                            AvalaraTransactionLog::create([
+                                "ip" => "0.0.0.0",
+                                "shop_id" => $shop->id,
+                                "request_data" => json_encode($requestDataAdjust),
+                                "total_requested_products" => count($transactionLines),
+                                "response" => $response->status() != 200 ? json_encode($response->body()) : $response->body(),
+                                "filtered_request_data" => json_encode($requestDataAdjust),
+                                "status" =>$response->status(),
+                            ]);
+
+                            $exciseTax = 0;
+                            $transactionError = null;
 
                             if ($response->status() == 200) {
                                 $responseTemp = json_decode($response->body());
                                 $exciseTax = $responseTemp->TotalTaxAmount;
-
                                 foreach ($responseTemp->TransactionTaxes as $key => $transactionTax) {
                                     if (isset($productIds[$key])) {
                                         $exciseByProduct = ExciseByProduct::where('shop_id', $shop->id)

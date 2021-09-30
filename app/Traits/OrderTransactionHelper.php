@@ -7,6 +7,7 @@ use App\Models\ExciseByProduct;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Transaction;
+use App\Services\AvalaraExciceHelper;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -92,7 +93,7 @@ trait OrderTransactionHelper
                         $item = [];
                         $item['ProductCode'] = $item['itemSKU'] = Str::substr($line_item->sku, 0, 24);
                         $item['tags'] = $productTags;
-                        if (!filterRequest($item, $productForExcise, $productIdentifierForExcise, $shop->id)) {
+                        if (!filterRequest($item, $productForExcise, $productIdentifierForExcise)) {
                             continue;
                         }
                         ++$itemCounter;
@@ -110,59 +111,13 @@ trait OrderTransactionHelper
 
             if (!empty($transactionLines)) {
 
-                $http = Http::timeout(60)->withHeaders($headers);
-                $http->withBasicAuth($apiUsername, $apiUserPassword);
-                $response = $http->post(env('AVALARA_API_ENDPOINT').'/AvaTaxExcise/transactions/create',
-                    $avalaraRequestData);
+                $newService = new AvalaraExciceHelper();
+                $newService->setCredentials($apiUsername, $apiUserPassword, $companyId);
+                $response = $newService->calculateExcice($avalaraRequestData);
 
-                $products_chunk = array_chunk($productIds, 250);
-                for ($i = 0; $i < count($products_chunk); $i++) {
-                    $ids = $products_chunk[$i];
-                    $ids = implode(",", $ids);
-                    $param = ['limit' => 250, 'ids' => $ids];
-                    $data250 = $shop->api()->rest('GET', '/admin/products.json', $param);
-                    if (isset($data250['body']['products'])) {
-                        foreach ($data250['body']['products'] as $key => $product) {
-                            $tags = explode(",", $product['tags']);
-                            $tags = array_map('trim', $tags);
-                            Product::updateOrCreate([
-                                'shop_id'            => $shop->id,
-                                'shopify_product_id' => $product['id'],
-                            ], [
-                                'shop_id'            => $shop->id,
-                                'shopify_product_id' => $product['id'],
-                                'title'              => $product['title'],
-                                'handle'             => $product['handle'],
-                                'vendor'             => $product['vendor'],
-                                'tags'               => $tags,
-                                'image_url'          => !empty($product['image']) ? $product['image']['src'] : null,
-                            ]);
+                $newService->productCreate($productIds, $shop);
 
-                            foreach ($product['variants'] as $variant) {
-                                ProductVariant::updateOrCreate([
-                                    'shop_id'    => $shop->id,
-                                    'variant_id' => $variant['id'],
-                                ], [
-                                    'shop_id'          => $shop->id,
-                                    'product_id'       => $product['id'],
-                                    'variant_id'       => $variant['id'],
-                                    'option_1_name'    => isset($product['options'][0]) ? $product['options'][0]['name'] : null,
-                                    'option_1_value'   => $variant['option1'],
-                                    'option_2_name'    => isset($product['options'][1]) ? $product['options'][1]['name'] : null,
-                                    'option_2_value'   => $variant['option2'],
-                                    'option_3_name'    => isset($product['options'][2]) ? $product['options'][2]['name'] : null,
-                                    'option_3_value'   => $variant['option3'],
-                                    'sku'              => $variant['sku'],
-                                    'barcode'          => $variant['barcode'],
-                                    'price'            => $variant['price'],
-                                    'compare_at_price' => $variant['compare_at_price'],
-                                    'quantity'         => $variant['inventory_quantity'],
-                                ]);
-                            }
-                        }
-                    }
-                }
-                AvalaraTransactionLog::insert([
+                AvalaraTransactionLog::create([
                     "ip"                       => "0.0.0.0",
                     'type'                     => $isOrderCreated ? 'create' : 'cancel',
                     "shop_id"                  => $shop->id,
@@ -171,21 +126,20 @@ trait OrderTransactionHelper
                     "response"                 => $response->status() != 200 ? json_encode($response->body()) : $response->body(),
                     "filtered_request_data"    => json_encode($avalaraRequestData),
                     "status"                   => $response->status(),
-                    "created_at"               => Carbon::now()->format('Y-m-d H:i:s'),
-                    "updated_at"               => Carbon::now()->format('Y-m-d H:i:s'),
                 ]);
 
                 $exciseTax = 0;
                 $transactionError = null;
+
                 if ($response->status() == 200) {
                     $responseTemp = json_decode($response->body());
                     $exciseTax = $responseTemp->TotalTaxAmount;
-                    foreach ($responseTemp->TransactionTaxes as $transactionTax) {
+                    foreach ($responseTemp->TransactionTaxes as $key => $transactionTax) {
                         if (isset($productIds[$transactionTax->TransactionLine])) {
                             $exciseByProduct = ExciseByProduct::where('shop_id', $shop->id)
                                 ->where('product_id', $productIds[$transactionTax->TransactionLine])
                                 ->where('date', Carbon::parse($data->created_at)->format('Y-m-d'))
-                                ->where('jurisdiction', $transactionTax->Jurisdiction)->first();
+                                ->first();
                         }
                         if ($exciseByProduct) {
                             $exciseByProduct->excise_tax += $transactionTax->TaxAmount;
@@ -195,7 +149,6 @@ trait OrderTransactionHelper
                                 'shop_id'      => $shop->id,
                                 'product_id'   => $productIds[$transactionTax->TransactionLine],
                                 'excise_tax'   => $transactionTax->TaxAmount,
-                                'jurisdiction' => $transactionTax->Jurisdiction,
                                 'date'         => Carbon::parse($data->created_at)->format('Y-m-d'),
                             ]);
                         }

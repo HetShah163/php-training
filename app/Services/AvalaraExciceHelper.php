@@ -4,6 +4,7 @@
 namespace App\Services;
 
 
+use App\Models\AvalaraTransactionLog;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use Carbon\Carbon;
@@ -32,7 +33,7 @@ class AvalaraExciceHelper
         return $http->post(env('AVALARA_API_ENDPOINT') . '/AvaTaxExcise/transactions/create', $requestDataAdjust);
     }
 
-    public function dataStore($productIds, $shop, $requestDataAdjust, $transactionLines, $response) {
+    public function productCreate($productIds, $shop) {
         $products_chunk = array_chunk($productIds, 250);
         for ($i = 0; $i < count($products_chunk); $i++) {
             $ids = $products_chunk[$i];
@@ -80,20 +81,5 @@ class AvalaraExciceHelper
                 }
             }
         }
-
-        DB::table('avalara_transaction_log')->insert([
-            "ip" => "0.0.0.0",
-            "shop_id" => $shop->id,
-            "request_data" => json_encode($requestDataAdjust),
-            "total_requested_products" => count($transactionLines),
-            "response" => $response->status() != 200 ? json_encode($response->body()) : $response->body(),
-            "filtered_request_data" => json_encode($requestDataAdjust),
-            "status" =>$response->status(),
-            "created_at" => Carbon::now()->format('Y-m-d H:i:s'),
-            "updated_at" => Carbon::now()->format('Y-m-d H:i:s')
-        ]);
-
-        $exciseTax = 0;
-        $transactionError = null;
     }
 }
