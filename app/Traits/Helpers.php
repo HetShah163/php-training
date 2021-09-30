@@ -187,41 +187,14 @@ trait Helpers
                 //foreach ($orderData['note_attributes'] as $noteAttribute) {
                     //if ($noteAttribute['name'] === 'transaction_id') {
 
-                        $staticSettings = StaticSetting::where('shop_id', $shop->id)->get();
-
-                        // Static Settings
-                        $hasTitleTransferCode = $staticSettings->where('field', 'title_transfer_code')->first();
-                        $titleTransferCode = $hasTitleTransferCode ? $hasTitleTransferCode->value : 'DEST';
-                        $hasTransactionType = $staticSettings->where('field', 'transaction_type')->first();
-                        $transactionType = $hasTransactionType ? $hasTransactionType->value : 'WHOLESALE';
-                        $hasTransportationModeCode = $staticSettings->where('field', 'transportation_mode_code')->first();
-                        $transportationModeCode = $hasTransportationModeCode ? $hasTransportationModeCode->value : 'J';
-                        $hasSeller = $staticSettings->where('field', 'seller')->first();
-                        $seller = $hasSeller ? $hasSeller->value : '';
-                        $hasBuyer = $staticSettings->where('field' , 'buyer')->first();
-                        $buyer = $hasBuyer ? $hasBuyer->value : '';
-                        $hasUnitOfMeasure = $staticSettings->where('field', 'unit_of_measure')->first();
-                        $unitOfMeasure = $hasUnitOfMeasure ? $hasUnitOfMeasure->value : 'EA';
-                        $hasCurrency = $staticSettings->where('field', 'currency')->first();
-                        $currency = $hasCurrency ? $hasCurrency->value : $orderData['currency'];
-                        $hasOrigin = $staticSettings->where('field', 'origin')->first();
-                        $origin = $hasOrigin ? $hasOrigin->value : '';
-
-                        // Order Custom Fields
-                        $orderCustomString1 = $staticSettings->where('field', 'order_custom_string1')->first();
-                        $orderCustomString2 = $staticSettings->where('field', 'order_custom_string2')->first();
-                        $orderCustomString3 = $staticSettings->where('field', 'order_custom_string3')->first();
-                        $orderCustomNumeric1 = $staticSettings->where('field', 'order_custom_numeric1')->first();
-                        $orderCustomNumeric2 = $staticSettings->where('field', 'order_custom_numeric2')->first();
-                        $orderCustomNumeric3 = $staticSettings->where('field', 'order_custom_numeric3')->first();
-
-                        // Line Items Custom Fields
-                        $itemCustomString1 = $staticSettings->where('field', 'lineitem_custom_string1')->first();
-                        $itemCustomString2 = $staticSettings->where('field', 'lineitem_custom_string2')->first();
-                        $itemCustomString3 = $staticSettings->where('field', 'lineitem_custom_string3')->first();
-                        $itemCustomNumeric1 = $staticSettings->where('field', 'lineitem_custom_numeric1')->first();
-                        $itemCustomNumeric2 = $staticSettings->where('field', 'lineitem_custom_numeric2')->first();
-                        $itemCustomNumeric3 = $staticSettings->where('field', 'lineitem_custom_numeric3')->first();
+                        list($titleTransferCode, $transactionType,
+                            $transportationModeCode, $seller, $buyer,
+                            $unitOfMeasure, $currency, $origin,
+                            $orderCustomString1, $orderCustomString2,
+                            $orderCustomString3, $orderCustomNumeric1,
+                            $orderCustomNumeric2, $orderCustomNumeric3,
+                            $itemCustomString1, $itemCustomString2, $itemCustomString3,
+                            $itemCustomNumeric1, $itemCustomNumeric2, $itemCustomNumeric3) = self::staticSettings($shop->id);
 
                         //Avalara Credential
                         $avalaraCredential = AvalaraCredential::where('shop_id', $shop->id)->first();
@@ -278,12 +251,12 @@ trait Helpers
                                         "DestinationAddress2" => isset($orderData['shipping_address']) ? $orderData['shipping_address']['address2'] : '',
                                         "Currency" => $currency,
                                         "UnitOfMeasure" => $unitOfMeasure,
-                                        "CustomString1" => $itemCustomString1 ? Helpers::getCustomString($itemCustomString1->value, $orderData) : null,
-                                        "CustomString2" => $itemCustomString2 ? Helpers::getCustomString($itemCustomString2->value, $orderData) : null,
-                                        "CustomString3" => $itemCustomString3 ? Helpers::getCustomString($itemCustomString3->value, $orderData) : null,
-                                        "CustomNumeric1" => $itemCustomNumeric1 ? Helpers::getCustomNumeric($itemCustomNumeric1->value, $orderData) : null,
-                                        "CustomNumeric2" => $itemCustomNumeric2 ? Helpers::getCustomNumeric($itemCustomNumeric2->value, $orderData) : null,
-                                        "CustomNumeric3" => $itemCustomNumeric3 ? Helpers::getCustomNumeric($itemCustomNumeric3->value, $orderData) : null,
+                                        "CustomString1" => $itemCustomString1 ? getCustomString($itemCustomString1->value, (object) $orderData) : null,
+                                        "CustomString2" => $itemCustomString2 ? getCustomString($itemCustomString2->value, (object) $orderData) : null,
+                                        "CustomString3" => $itemCustomString3 ? getCustomString($itemCustomString3->value, (object) $orderData) : null,
+                                        "CustomNumeric1" => $itemCustomNumeric1 ? getCustomNumeric($itemCustomNumeric1->value, (object) $orderData) : null,
+                                        "CustomNumeric2" => $itemCustomNumeric2 ? getCustomNumeric($itemCustomNumeric2->value, (object) $orderData) : null,
+                                        "CustomNumeric3" => $itemCustomNumeric3 ? getCustomNumeric($itemCustomNumeric3->value, (object) $orderData) : null,
                                         //"AlternateUnitPrice" => getVariant($shop->name, $line_item['variant_id']),
                                     ];
                                 }
@@ -301,12 +274,12 @@ trait Helpers
                             'TransportationModeCode' => $transportationModeCode,
                             'Seller' => $seller,
                             'Buyer' => $buyer,
-                            'CustomString1' => $orderCustomString1 ? Helpers::getCustomString($orderCustomString1->value, $orderData) : null,
-                            'CustomString2' => $orderCustomString2 ? Helpers::getCustomString($orderCustomString2->value, $orderData) : null,
-                            'CustomString3' => $orderCustomString3 ? Helpers::getCustomString($orderCustomString3->value, $orderData) : null,
-                            'CustomNumeric1' => $orderCustomNumeric1 ? Helpers::getCustomNumeric($orderCustomNumeric1->value, $orderData) : null,
-                            'CustomNumeric2' => $orderCustomNumeric2 ? Helpers::getCustomNumeric($orderCustomNumeric2->value, $orderData) : null,
-                            'CustomNumeric3' => $orderCustomNumeric3 ? Helpers::getCustomNumeric($orderCustomNumeric3->value, $orderData) : null,
+                            'CustomString1' => $orderCustomString1 ? getCustomString($orderCustomString1->value, (object) $orderData) : null,
+                            'CustomString2' => $orderCustomString2 ? getCustomString($orderCustomString2->value, (object) $orderData) : null,
+                            'CustomString3' => $orderCustomString3 ? getCustomString($orderCustomString3->value, (object) $orderData) : null,
+                            'CustomNumeric1' => $orderCustomNumeric1 ? getCustomNumeric($orderCustomNumeric1->value, (object) $orderData) : null,
+                            'CustomNumeric2' => $orderCustomNumeric2 ? getCustomNumeric($orderCustomNumeric2->value, (object) $orderData) : null,
+                            'CustomNumeric3' => $orderCustomNumeric3 ? getCustomNumeric($orderCustomNumeric3->value, (object) $orderData) : null,
                         ];
 
                         if (!empty($transactionLines)) {
@@ -334,63 +307,6 @@ trait Helpers
             //}return "note attributes not found";
         }
         //return $orderRes;
-    }
-
-    /**
-     * @param $stringType
-     * @param $data
-     * @return mixed|string
-     */
-    public static function getCustomString($stringType, $data) {
-        switch ($stringType) {
-            case 5:
-                $customerName = '';
-                if ($data['customer']) {
-                    $customerName = $data['customer']['first_name'].' '.$data['customer']['last_name'];
-                }
-
-                return $customerName;
-            case 2:
-                return $data['order_number'];
-            case 3:
-                $phone = '';
-                if ($data['customer']) {
-                    $phone = $data['customer']['phone'];
-                }
-
-                return $phone;
-            case 4:
-                $customerEmail = '';
-                if ($data['customer']) {
-                    $customerEmail = $data['customer']['email'];
-                }
-
-                return $customerEmail;
-            case 1:
-                return '';
-        }
-    }
-
-    /**
-     * @param $numericType
-     * @param $data
-     * @return int|mixed|string
-     */
-    public static function getCustomNumeric($numericType, $data)
-    {
-        switch($numericType) {
-            case 3:
-                return $data['total_price'];
-            case 2:
-                $totalQuantity = 0;
-                foreach ($data['line_items'] as $item) {
-                    $totalQuantity += $item['quantity'];
-                }
-
-                return $totalQuantity;
-            case 1:
-                return '';
-        }
     }
 
     public static function failoverCheckout($shopId, $unauthorizeLoaction = 0) {

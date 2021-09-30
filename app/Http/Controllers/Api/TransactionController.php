@@ -13,52 +13,96 @@ use Illuminate\Support\Facades\Log;
 
 class TransactionController extends Controller
 {
+    public function processOrders($request, $from) {
+        try {
+            $sortBy = request('sortBy') ?? 'order_number';
+            $sortOrder = request('sortOrder') ?? 'ascending';
+            $sortOrder = ($sortOrder == 'descending') ? 'desc' : 'asc';
+            $search = isset($request->search) && $request->search ? $request->search : '';
+            $status = isset($request->status) && $request->status ? $request->status : '';//
+            $from_date = $request->start_date ? Carbon::parse($request->start_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
+            $to_date = $request->end_date ? Carbon::parse($request->end_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
+
+            $shop = $request->user();
+            $shopId = $shop->id;
+
+            $transactions = Transaction::where('shop_id', $shopId)
+                ->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])
+                ->get();
+
+            $totalExciseCollection = $transactions->whereNull('failed_reason')->sum('excise_tax');
+
+            $orders = Transaction::where('shop_id', $shopId);
+            if ($search) {
+                $orders->where(function ($q) use ($search) {
+                    $q->where('order_number', 'LIKE', '%'.$search.'%');
+                    $q->orWhere('customer', 'LIKE', '%'.$search.'%');
+                    $q->orWhere('state', 'LIKE', '%'.$search.'%');
+                });
+            }
+            if ($from_date && $to_date) {
+                $orders->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()]);
+            }
+            if ($status && $from !== 'ignoredOrders') {
+                $orders->where('status', $status);
+            }
+
+            if($from === 'orders') {
+                $totalExciseErrors = $transactions->whereNotNull('failed_reason')->where('is_ignore', 0)->count();
+                $totalIgnoredOrders = $transactions->whereNotNull('failed_reason')->where('is_ignore', 1)->count();
+                $responseData["total_excise_errors"] = $totalExciseErrors;
+                $responseData["total_ignored_orders"] = $totalIgnoredOrders;
+                $orders->whereNull('failed_reason');
+            }
+            else if($from === 'exciseErrors') {
+                $totalOrders = $transactions->whereNull('failed_reason')->whereNull('parent_id')->count();
+                $totalIgnoredOrders = $transactions->whereNotNull('failed_reason')->where('is_ignore', 1)->count();
+                $responseData["total_orders"] = $totalOrders;
+                $responseData["total_ignored_orders"] = $totalIgnoredOrders;
+                $orders->whereNotNull('failed_reason');
+                $orders->where('is_ignore', 0);
+            }
+            else if($from === 'ignoredOrders') {
+                $totalOrders = $transactions->whereNull('failed_reason')->whereNull('parent_id')->count();
+                $totalExciseErrors = $transactions->whereNotNull('failed_reason')->where('is_ignore', 0)->count();
+                $responseData["total_orders"] = $totalOrders;
+                $responseData["total_excise_errors"] = $totalExciseErrors;
+                $orders->whereNotNull('failed_reason');
+                $orders->where('is_ignore', 1);
+            }
+
+            $orders->orderBy($sortBy, $sortOrder);
+            $orders = $orders->paginate(15);
+            $orders->flatMap(function ($value) use($from){
+                $value->order_date = Carbon::parse($value->order_date)->format("d M, Y");
+                $status = $this->status($value->status);
+                $value->status = $status['status'];
+                $value->badge = $status['badge'];
+                if($from === 'orders') {
+                    $value->excise_tax = number_format($value->excise_tax, 2);
+                }
+                $value->progress = $status['progress'];
+            });
+
+            $responseData["data"] = $orders;
+            $responseData["total_excise_collection"] = number_format($totalExciseCollection, 2);
+
+            return response($responseData);
+        }
+        catch(\Exception $e) {
+            return response(['message' => $e->getMessage()], 500);
+        }
+  }
+
+
+
     /**
      * @param Request $request
      * @param User $user
      * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function orders(Request $request, User $user) {
-        $sortBy = request('sortBy') ?? 'order_number';
-        $sortOrder = request('sortOrder') ?? 'ascending';
-        $sortOrder = ($sortOrder == 'descending') ? 'desc' : 'asc';
-        $search = isset($request->search) && $request->search ? $request->search : '';
-        $status = isset($request->status) && $request->status ? $request->status : '';
-        $from_date = $request->start_date ? Carbon::parse($request->start_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-        $to_date = $request->end_date ? Carbon::parse($request->end_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-
-        $shop = $request->user();
-        $shopId = $shop->id;
-
-        $totalExciseErrors = Transaction::where('shop_id', $shopId)->whereNotNull('failed_reason')->where('is_ignore', 0)->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalIgnoredOrders = Transaction::where('shop_id', $shopId)->whereNotNull('failed_reason')->where('is_ignore', 1)->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalExciseCollection = Transaction::where('shop_id', $shopId)->whereNull('failed_reason')->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->sum('excise_tax');
-        $orders = Transaction::where('shop_id', $shopId);
-        if ($search) {
-            $orders->where(function ($q) use ($search) {
-                $q->where('order_number', 'LIKE', '%'.$search.'%');
-                $q->orWhere('customer', 'LIKE', '%'.$search.'%');
-                $q->orWhere('state', 'LIKE', '%'.$search.'%');
-            });
-        }
-        if ($from_date && $to_date) {
-            $orders->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()]);
-        }
-        if ($status) {
-            $orders->where('status', $status);
-        }
-        $orders->whereNull('failed_reason');
-        $orders->orderBy($sortBy, $sortOrder);
-        $orders = $orders->paginate(15);
-        $orders->flatMap(function ($value) {
-            $value->order_date = Carbon::parse($value->order_date)->format("d M, Y");
-            $status = $this->status($value->status);
-            $value->status = $status['status'];
-            $value->badge = $status['badge'];
-            $value->excise_tax = number_format($value->excise_tax, 2);
-            $value->progress = $status['progress'];
-        });
-        return response(["data" => $orders, "total_excise_errors" => $totalExciseErrors, "total_ignored_orders" => $totalIgnoredOrders, 'total_excise_collection' => number_format($totalExciseCollection, 2)]);
+        return $this->processOrders($request, 'orders');
     }
 
     /**
@@ -67,46 +111,7 @@ class TransactionController extends Controller
      * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function exciseErrors(Request $request, User $user) {
-        $sortBy = request('sortBy') ?? 'order_number';
-        $sortOrder = request('sortOrder') ?? 'ascending';
-        $sortOrder = ($sortOrder == 'descending') ? 'desc' : 'asc';
-        $search = isset($request->search) && $request->search ? $request->search : '';
-        $status = isset($request->status) && $request->status ? $request->status : '';
-        $from_date = $request->start_date ? Carbon::parse($request->start_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-        $to_date = $request->end_date ? Carbon::parse($request->end_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-
-        $shop = $request->user();
-        $shopId = $shop->id;
-
-        $totalOrders = Transaction::where('shop_id', $shopId)->whereNull('failed_reason')->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalIgnoredOrders = Transaction::where('shop_id', $shopId)->whereNotNull('failed_reason')->where('is_ignore', 1)->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalExciseCollection = Transaction::where('shop_id', $shopId)->whereNull('failed_reason')->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->sum('excise_tax');
-        $orders = Transaction::where('shop_id', $shopId);
-        if ($search) {
-            $orders->where(function ($q) use ($search) {
-                $q->where('order_number', 'LIKE', '%'.$search.'%');
-                $q->orWhere('customer', 'LIKE', '%'.$search.'%');
-                $q->orWhere('state', 'LIKE', '%'.$search.'%');
-            });
-        }
-        if ($from_date && $to_date) {
-            $orders->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()]);
-        }
-        if ($status) {
-            $orders->where('status', $status);
-        }
-        $orders->whereNotNull('failed_reason');
-        $orders->where('is_ignore', 0);
-        $orders->orderBy($sortBy, $sortOrder);
-        $orders = $orders->paginate(15);
-        $orders->flatMap(function ($value) {
-            $value->order_date = Carbon::parse($value->order_date)->format("d M, Y");
-            $status = $this->status($value->status);
-            $value->status = $status['status'];
-            $value->badge = $status['badge'];
-            $value->progress = $status['progress'];
-        });
-        return response(["data" => $orders, "total_orders" => $totalOrders, "total_ignored_orders" => $totalIgnoredOrders, 'total_excise_collection' => number_format($totalExciseCollection, 2)]);
+        return $this->processOrders($request, 'exciseErrors');
     }
 
     /**
@@ -115,42 +120,7 @@ class TransactionController extends Controller
      * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function ignoredOrders(Request $request, User $user) {
-        $sortBy = request('sortBy') ?? 'order_number';
-        $sortOrder = request('sortOrder') ?? 'ascending';
-        $sortOrder = ($sortOrder == 'descending') ? 'desc' : 'asc';
-        $search = isset($request->search) && $request->search ? $request->search : '';
-        $from_date = $request->start_date ? Carbon::parse($request->start_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-        $to_date = $request->end_date ? Carbon::parse($request->end_date)->format('Y-m-d') : Carbon::now()->format('Y-m-d');
-
-        $shop = $request->user();
-        $shopId = $shop->id;
-
-        $totalOrders = Transaction::where('shop_id', $shopId)->whereNull('failed_reason')->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalExciseErrors = Transaction::where('shop_id', $shopId)->whereNotNull('failed_reason')->where('is_ignore', 0)->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->count();
-        $totalExciseCollection = Transaction::where('shop_id', $shopId)->whereNull('failed_reason')->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()])->sum('excise_tax');
-        $orders = Transaction::where('shop_id', $shopId);
-        if ($search) {
-            $orders->where(function ($q) use ($search) {
-                $q->where('order_number', 'LIKE', '%'.$search.'%');
-                $q->orWhere('customer', 'LIKE', '%'.$search.'%');
-                $q->orWhere('state', 'LIKE', '%'.$search.'%');
-            });
-        }
-        if ($from_date && $to_date) {
-            $orders->whereBetween('order_date', [$from_date.Helpers::startTime(), $to_date.Helpers::endTime()]);
-        }
-        $orders->whereNotNull('failed_reason');
-        $orders->where('is_ignore', 1);
-        $orders->orderBy($sortBy, $sortOrder);
-        $orders = $orders->paginate(15);
-        $orders->flatMap(function ($value) {
-            $value->order_date = Carbon::parse($value->order_date)->format("d M, Y");
-            $status = $this->status($value->status);
-            $value->status = $status['status'];
-            $value->badge = $status['badge'];
-            $value->progress = $status['progress'];
-        });
-        return response(["data" => $orders, "total_orders" => $totalOrders, "total_excise_errors" => $totalExciseErrors, 'total_excise_collection' => number_format($totalExciseCollection, 2)]);
+        return $this->processOrders($request, 'ignoredOrders');
     }
 
     /**
